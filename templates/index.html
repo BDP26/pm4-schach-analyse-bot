@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RealMove</title>
+    <title>RealMove Hivemind</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
         body { font-family: sans-serif; max-width: 600px; margin: 40px auto; text-align: center; }
         #board { width: 100%; margin-top: 20px; }
-        .controls { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+        .controls { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
         #message { color: red; font-weight: bold; margin-top: 15px; }
+        #alternatives { margin-top: 15px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+        .alt-btn { padding: 8px 12px; cursor: pointer; background-color: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; }
+        .alt-btn:hover { background-color: #e0e0e0; }
     </style>
 </head>
 <body>
@@ -22,13 +25,21 @@
                 <option value="b">Black</option>
             </select>
         </label>
-        <label>Your Elo Bucket: <input type="number" id="elo" step="100" value="1500"></label>
+
+        <!-- Updated to accommodate Elo ranges -->
+        <label>Elo Range:
+            <input type="number" id="elo-min" step="100" value="1000" style="width: 70px;"> to
+            <input type="number" id="elo-max" step="100" value="2000" style="width: 70px;">
+        </label>
+
         <label>Start Sequence (e.g. e4 e5 Nf3): <input type="text" id="moves"></label>
         <button onclick="setupBoard()">Setup Board / Start Game</button>
     </div>
 
     <div id="board"></div>
     <div id="message"></div>
+    <!-- New div to hold alternative moves -->
+    <div id="alternatives"></div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
@@ -38,14 +49,13 @@
         let board = null;
         let game = new Chess();
         const messageEl = document.getElementById('message');
+        const alternativesEl = document.getElementById('alternatives');
 
-        // Flips the board instantly when you use the dropdown
         function changeColor() {
             const color = document.getElementById('player-color').value;
             board.orientation(color === 'w' ? 'white' : 'black');
         }
 
-        // Prevents you from picking up the bot's pieces or moving out of turn
         function onDragStart (source, piece, position, orientation) {
             const playerColor = document.getElementById('player-color').value;
             if (game.game_over() || piece.charAt(0) !== playerColor || game.turn() !== playerColor) {
@@ -55,6 +65,8 @@
 
         function onDrop(source, target) {
             messageEl.innerText = "";
+            alternativesEl.innerHTML = ""; // Clear alternatives when player makes a move
+
             let move = game.move({
                 from: source,
                 to: target,
@@ -62,8 +74,6 @@
             });
 
             if (move === null) return 'snapback';
-
-            // If valid, ask backend for opponent's move
             requestOpponentMove();
         }
 
@@ -72,11 +82,17 @@
         }
 
         async function requestOpponentMove() {
-            const elo = document.getElementById('elo').value;
+            const eloMin = document.getElementById('elo-min').value;
+            const eloMax = document.getElementById('elo-max').value;
+
             const response = await fetch('/get_opponent_move', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fen: game.fen(), elo: parseInt(elo) })
+                body: JSON.stringify({
+                    fen: game.fen(),
+                    elo_min: parseInt(eloMin),
+                    elo_max: parseInt(eloMax)
+                })
             });
 
             const data = await response.json();
@@ -84,13 +100,32 @@
             if (data.error) {
                 messageEl.innerText = data.error;
             } else {
+                // Auto-play the highest likelihood move
                 game.move(data.move);
                 board.position(game.fen());
+
+                // Generate buttons for all alternatives (including the top move)
+                data.alternatives.forEach(alt => {
+                    const btn = document.createElement('button');
+                    btn.className = 'alt-btn';
+                    btn.innerText = `${alt.move} (${alt.likelihood}%)`;
+                    btn.onclick = () => chooseAlternative(alt.move);
+                    alternativesEl.appendChild(btn);
+                });
             }
+        }
+
+        // Logic for picking a different bot move
+        function chooseAlternative(moveSan) {
+            game.undo();           // Undo the bot's auto-played move
+            game.move(moveSan);    // Apply the alternative move you clicked
+            board.position(game.fen()); // Update visual board
+            alternativesEl.innerHTML = ""; // Clear choices
         }
 
         async function setupBoard() {
             messageEl.innerText = "";
+            alternativesEl.innerHTML = "";
             const moves = document.getElementById('moves').value;
             const playerColor = document.getElementById('player-color').value;
 
@@ -106,22 +141,18 @@
             } else {
                 game.load(data.fen);
                 board.position(game.fen());
-
-                // Ensure board orientation matches your choice
                 board.orientation(playerColor === 'w' ? 'white' : 'black');
 
-                // If the resulting position means it is the bot's turn, let it move!
                 if (game.turn() !== playerColor) {
                     requestOpponentMove();
                 }
             }
         }
 
-        // Initialize empty/start board
         const config = {
             draggable: true,
             position: 'start',
-            onDragStart: onDragStart, // Added the drag rule here
+            onDragStart: onDragStart,
             onDrop: onDrop,
             onSnapEnd: onSnapEnd,
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'

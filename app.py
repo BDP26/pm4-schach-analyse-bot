@@ -4,7 +4,7 @@ import duckdb
 
 app = Flask(__name__)
 
-# Connect to DuckDB (it will query the parquet file directly)
+# Connect to DuckDB
 db = duckdb.connect()
 
 
@@ -37,29 +37,41 @@ def setup_board():
 
 @app.route('/get_opponent_move', methods=['POST'])
 def get_opponent_move():
-    """Queries DuckDB for the most played move in the current position."""
+    """Queries DuckDB for the top 5 most played moves in the current position and ELO range."""
     data = request.json
     fen = data.get('fen')
-    elo_bucket = data.get('elo', 1500)  # Default to 1500
+    elo_min = data.get('elo_min', 0)
+    elo_max = data.get('elo_max', 3000)
 
     board = chess.Board(fen)
     base_fen = get_base_fen(board)
 
-    # Query DuckDB directly from the parquet file
+    # Use a CTE to sum the plays across the Elo buckets, then calculate percentages
     query = """
-            SELECT MoveSAN
-            FROM 'lichess_moves_final.parquet'
-            WHERE BaseFEN = ? AND PlayerEloBucket = ?
-            ORDER BY TimesPlayed DESC
-                LIMIT 1 \
+            WITH MoveStats AS (SELECT MoveSAN, \
+                                      SUM(TimesPlayed) as plays \
+                               FROM 'lichess_moves_final.parquet'
+            WHERE BaseFEN = ? AND PlayerEloBucket >= ? AND PlayerEloBucket <= ?
+            GROUP BY MoveSAN
+                )
+            SELECT MoveSAN, \
+                   plays * 100.0 / (SELECT SUM(plays) FROM MoveStats) as percentage
+            FROM MoveStats
+            ORDER BY plays DESC LIMIT 5 \
             """
 
-    result = db.execute(query, (base_fen, elo_bucket)).fetchone()
+    results = db.execute(query, (base_fen, elo_min, elo_max)).fetchall()
 
-    if result:
-        return jsonify({"move": result[0]})
+    if results:
+        # Build a list of dictionaries for the frontend
+        moves_data = [{"move": row[0], "likelihood": round(row[1], 1)} for row in results]
+
+        return jsonify({
+            "move": moves_data[0]["move"],  # Auto-play the top move
+            "alternatives": moves_data  # Send all 5 back for the UI
+        })
     else:
-        return jsonify({"error": "Position not found in dataset for this ELO."}), 404
+        return jsonify({"error": "Position not found in dataset for this ELO range."}), 404
 
 
 if __name__ == '__main__':
