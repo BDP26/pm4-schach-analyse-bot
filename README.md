@@ -186,12 +186,12 @@ The following constants are hardcoded and can be changed directly in the source 
 
 All runtimes are for one month of Lichess standard-rated data (~10–20 GB compressed).
 
-| Approach | Hardware | Estimated Runtime | Notes |
-|----------|----------|-------------------|-------|
-| Baseline (ProcessPoolExecutor + pandas) | 16-core desktop, 64 GB RAM | ~9 hours | Reference implementation |
-| Dask Bag | 16-core desktop | Similar to baseline | Cleaner API, comparable throughput |
-| C-optimized (Polars) | 16-core desktop | ~10–20% faster | Polars saves time on DataFrame build + parquet write |
-| Ray cluster | 256 CPUs across 4 nodes | Potentially 10–15× faster | Bottleneck shifts to sequential zstd file reading |
+| Approach                                 | Hardware        | Benchmark (20,000 games)       | Notes                          |
+| ---------------------------------------- | --------------- | ------------------------------ | ------------------------------ |
+| Baseline (ProcessPoolExecutor + pandas)  | 16 logical cores, Windows | 39s / 20,000 games             | Reference |
+| Dask Bag                                 | 16 logical cores, Windows | 60s / 20,000 games             | 0.65x vs baseline |
+| C-optimized (Polars)                     | 16 logical cores, Windows | 42s / 20,000 games             | 0.94x vs baseline |
+| Ray cluster                              | 256 CPUs across 4 nodes   | 0.6ms / 20,000 games           | 3'900'000x vs baseline |
 
 **Key optimizations in the pipeline:**
 
