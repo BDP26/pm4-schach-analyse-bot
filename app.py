@@ -1,11 +1,22 @@
 from flask import Flask, request, jsonify, render_template
 import chess
 import duckdb
+import os
+import glob
 
 app = Flask(__name__)
 
 # Connect to DuckDB
 db = duckdb.connect()
+
+# Determine which parquet source to query:
+# 1. monthly_databases/*.parquet  — populated by lichess_auto_update.py (preferred)
+# 2. lichess_moves_final.parquet  — legacy single-file fallback
+def _get_parquet_source():
+    monthly_files = glob.glob(os.path.join("monthly_databases", "*.parquet"))
+    if monthly_files:
+        return "monthly_databases/*.parquet"
+    return "lichess_moves_final.parquet"
 
 
 def get_base_fen(board):
@@ -46,18 +57,19 @@ def get_opponent_move():
     board = chess.Board(fen)
     base_fen = get_base_fen(board)
 
+    parquet_source = _get_parquet_source()
+
     # Use a CTE to sum the plays across the Elo buckets, then calculate percentages
-    query = """
-            WITH MoveStats AS (SELECT MoveSAN, \
-                                      SUM(TimesPlayed) as plays \
-                               FROM 'lichess_moves_final.parquet'
-            WHERE BaseFEN = ? AND PlayerEloBucket >= ? AND PlayerEloBucket <= ?
-            GROUP BY MoveSAN
-                )
-            SELECT MoveSAN, \
+    query = f"""
+            WITH MoveStats AS (SELECT MoveSAN,
+                                      SUM(TimesPlayed) as plays
+                               FROM '{parquet_source}'
+                               WHERE BaseFEN = ? AND PlayerEloBucket >= ? AND PlayerEloBucket <= ?
+                               GROUP BY MoveSAN)
+            SELECT MoveSAN,
                    plays * 100.0 / (SELECT SUM(plays) FROM MoveStats) as percentage
             FROM MoveStats
-            ORDER BY plays DESC LIMIT 5 \
+            ORDER BY plays DESC LIMIT 5
             """
 
     results = db.execute(query, (base_fen, elo_min, elo_max)).fetchall()
