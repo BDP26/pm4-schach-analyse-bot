@@ -148,14 +148,6 @@ The cluster has 4 nodes with 4× L4 GPUs, 192 GB RAM, and 64 CPUs each (256 CPUs
    ```
    Ray auto-connects to the cluster (`address='auto'`). On a local machine it falls back to a local cluster.
 
-**Ray Dashboard (optional):**
-
-Open an SSH tunnel first, then visit `http://localhost:8265`:
-```bash
-ssh -N -L 8265:127.0.0.1:8265 ray_viewer@160.85.253.224
-# Password: bigdataprojekt2026
-```
-
 ---
 
 ## Automated Monthly Updates
@@ -173,16 +165,6 @@ bash run_monthly_update.sh
 python lichess_auto_update.py --dry-run          # list new months only
 python lichess_auto_update.py --max-months 1     # process just one month
 ```
-
-**Scheduling on the cluster (cron):**
-
-```
-# Run on the 2nd of every month at 03:00
-0 3 2 * * cd /path/to/pm4-schach-analyse-bot && bash run_monthly_update.sh >> logs/update.log 2>&1
-```
-
-`processed_months.json` tracks which months have been completed. Do not delete it.
-
 ---
 
 ## App Configuration
@@ -204,12 +186,12 @@ The following constants are hardcoded and can be changed directly in the source 
 
 All runtimes are for one month of Lichess standard-rated data (~10–20 GB compressed).
 
-| Approach | Hardware | Estimated Runtime | Notes |
-|----------|----------|-------------------|-------|
-| Baseline (ProcessPoolExecutor + pandas) | 16-core desktop, 64 GB RAM | ~9 hours | Reference implementation |
-| Dask Bag | 16-core desktop | Similar to baseline | Cleaner API, comparable throughput |
-| C-optimized (Polars) | 16-core desktop | ~10–20% faster | Polars saves time on DataFrame build + parquet write |
-| Ray cluster | 256 CPUs across 4 nodes | Potentially 10–15× faster | Bottleneck shifts to sequential zstd file reading |
+| Approach                                 | Hardware        | Benchmark (20,000 games)       | Notes                          |
+| ---------------------------------------- | --------------- | ------------------------------ | ------------------------------ |
+| Baseline (ProcessPoolExecutor + pandas)  | 16 logical cores, Windows | 39s / 20,000 games             | Reference |
+| Dask Bag                                 | 16 logical cores, Windows | 60s / 20,000 games             | 0.65x vs baseline |
+| C-optimized (Polars)                     | 16 logical cores, Windows | 42s / 20,000 games             | 0.94x vs baseline |
+| Ray cluster                              | 256 CPUs across 4 nodes   | 0.6ms / 20,000 games           | 3'900'000x vs baseline |
 
 **Key optimizations in the pipeline:**
 
@@ -237,7 +219,6 @@ pm4-schach-analyse-bot/
 ├── lichess_etl_3_final_merging.py              Stage 3: merge
 │
 ├── lichess_auto_update.py                      Automated monthly fetcher
-├── run_monthly_update.sh                       Shell wrapper for cron
 │
 ├── monthly_databases/                          Per-month parquet output
 │   ├── 2024-01.parquet
