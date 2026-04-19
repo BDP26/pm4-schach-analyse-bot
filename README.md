@@ -173,16 +173,6 @@ bash run_monthly_update.sh
 python lichess_auto_update.py --dry-run          # list new months only
 python lichess_auto_update.py --max-months 1     # process just one month
 ```
-
-**Scheduling on the cluster (cron):**
-
-```
-# Run on the 2nd of every month at 03:00
-0 3 2 * * cd /path/to/pm4-schach-analyse-bot && bash run_monthly_update.sh >> logs/update.log 2>&1
-```
-
-`processed_months.json` tracks which months have been completed. Do not delete it.
-
 ---
 
 ## App Configuration
