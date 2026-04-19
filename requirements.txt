@@ -1,0 +1,20 @@
+# Core app
+flask
+chess
+duckdb
+pandas
+zstandard
+
+# C-optimized extraction (Task 1 - polars approach)
+polars
+pyarrow
+
+# Dask extraction (Task 1 - dask approach)
+dask[complete]
+
+# Ray cluster extraction (Task 1 - ray approach)
+ray[default]
+
+# Automated monthly update (Task 2)
+requests
+tqdm
