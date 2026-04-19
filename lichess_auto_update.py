@@ -62,17 +62,14 @@ def fetch_available_months():
     response = requests.get(LICHESS_BASE_URL, timeout=30)
     response.raise_for_status()
 
-    # Match links like: /standard/lichess_db_standard_rated_2024-01.pgn.zst
-    pattern = r'href="(/standard/lichess_db_standard_rated_(\d{4}-\d{2})\.pgn\.zst)"'
+    # Actual href format on the page: standard/lichess_db_standard_rated_2024-01.pgn.zst
+    # (relative path, no leading slash)
+    pattern = r'href="((?:standard/)?lichess_db_standard_rated_(\d{4}-\d{2})\.pgn\.zst)"'
     matches = re.findall(pattern, response.text)
-
-    if not matches:
-        # Fallback: try alternative path format
-        pattern = r'href="(lichess_db_standard_rated_(\d{4}-\d{2})\.pgn\.zst)"'
-        matches = re.findall(pattern, response.text)
 
     months = []
     for path, year_month in matches:
+        # Build absolute URL from the relative path
         url = LICHESS_BASE_URL.rstrip('/') + '/' + path.lstrip('/')
         months.append((year_month, url))
 
@@ -127,44 +124,47 @@ def download_file(url, dest_path):
 # ==========================================
 # STEP 4: ETL - Stage 1 (extraction)
 # ==========================================
+
+# Module-level worker — must be at module scope so ProcessPoolExecutor can pickle it
+def _process_game(data):
+    import io
+    import chess.pgn
+    pgn_string, clean_event, w_elo, b_elo = data
+    positions = []
+    try:
+        game = chess.pgn.read_game(io.StringIO(pgn_string))
+        if game is not None:
+            board = game.board()
+            for i, move in enumerate(game.mainline_moves()):
+                if i >= 40:
+                    break
+                is_white = board.turn
+                exact_elo = w_elo if is_white else b_elo
+                bucketed_elo = (exact_elo // 100) * 100
+                base_fen = board.fen().rsplit(' ', 2)[0]
+                positions.append({
+                    "Event": clean_event,
+                    "PlayerEloBucket": bucketed_elo,
+                    "BaseFEN": base_fen,
+                    "MoveSAN": board.san(move)
+                })
+                board.push(move)
+    except Exception:
+        pass
+    return positions
+
+
 def run_stage1_extraction(pgn_zst_path, chunks_dir):
     """Run Stage 1 extraction using the baseline parallel implementation."""
-    # Import here to avoid circular dependency issues and allow flexible swap
     import zstandard as zstd
     import io
     import pandas as pd
-    import chess.pgn
     import concurrent.futures
     import multiprocessing
 
     print(f"   Stage 1: Extracting positions from {os.path.basename(pgn_zst_path)}...")
 
     os.makedirs(chunks_dir, exist_ok=True)
-
-    def _process_game(data):
-        pgn_string, clean_event, w_elo, b_elo = data
-        positions = []
-        try:
-            game = chess.pgn.read_game(io.StringIO(pgn_string))
-            if game is not None:
-                board = game.board()
-                for i, move in enumerate(game.mainline_moves()):
-                    if i >= 40:
-                        break
-                    is_white = board.turn
-                    exact_elo = w_elo if is_white else b_elo
-                    bucketed_elo = (exact_elo // 100) * 100
-                    base_fen = board.fen().rsplit(' ', 2)[0]
-                    positions.append({
-                        "Event": clean_event,
-                        "PlayerEloBucket": bucketed_elo,
-                        "BaseFEN": base_fen,
-                        "MoveSAN": board.san(move)
-                    })
-                    board.push(move)
-        except Exception:
-            pass
-        return positions
 
     num_cores = max(1, multiprocessing.cpu_count() - 2)
     BATCH = 2000
@@ -198,8 +198,10 @@ def run_stage1_extraction(pgn_zst_path, chunks_dir):
                         if term in ["Abandoned", "Rules infraction", "Unterminated"]:
                             current_headers = {}
                             continue
-                        w_elo = int(current_headers.get("WhiteElo", "0") or "0")
-                        b_elo = int(current_headers.get("BlackElo", "0") or "0")
+                        w_elo_str = current_headers.get("WhiteElo", "0")
+                        b_elo_str = current_headers.get("BlackElo", "0")
+                        w_elo = int(w_elo_str) if w_elo_str.isdigit() else 0
+                        b_elo = int(b_elo_str) if b_elo_str.isdigit() else 0
                         if w_elo > 600 and b_elo > 600:
                             clean_event = raw_event.split(" https://")[0]
                             pgn_str = (
