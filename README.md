@@ -148,14 +148,6 @@ The cluster has 4 nodes with 4× L4 GPUs, 192 GB RAM, and 64 CPUs each (256 CPUs
    ```
    Ray auto-connects to the cluster (`address='auto'`). On a local machine it falls back to a local cluster.
 
-**Ray Dashboard (optional):**
-
-Open an SSH tunnel first, then visit `http://localhost:8265`:
-```bash
-ssh -N -L 8265:127.0.0.1:8265 ray_viewer@160.85.253.224
-# Password: bigdataprojekt2026
-```
-
 ---
 
 ## Automated Monthly Updates
@@ -227,7 +219,6 @@ pm4-schach-analyse-bot/
 ├── lichess_etl_3_final_merging.py              Stage 3: merge
 │
 ├── lichess_auto_update.py                      Automated monthly fetcher
-├── run_monthly_update.sh                       Shell wrapper for cron
 │
 ├── monthly_databases/                          Per-month parquet output
 │   ├── 2024-01.parquet
