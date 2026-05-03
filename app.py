@@ -6,17 +6,27 @@ import glob
 
 app = Flask(__name__)
 
-# Connect to DuckDB
+# Anchor all data paths to this file's directory so the app works regardless
+# of which CWD it was launched from (shell, IDE run config, systemd, etc.).
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MONTHLY_DIR = os.path.join(SCRIPT_DIR, "monthly_databases")
+MONTHLY_GLOB = os.path.join(MONTHLY_DIR, "*.parquet").replace("\\", "/")
+LEGACY_FILE = os.path.join(SCRIPT_DIR, "lichess_moves_final.parquet").replace("\\", "/")
+
 db = duckdb.connect()
 
-# Determine which parquet source to query:
-# 1. monthly_databases/*.parquet  — populated by lichess_auto_update.py (preferred)
-# 2. lichess_moves_final.parquet  — legacy single-file fallback
+# Determine which parquet source to query. Re-evaluated per request because
+# lichess_auto_update.py may drop new monthly files into MONTHLY_DIR while
+# the app is running. Returns None if no data source is available.
+# The merged file (produced by merge_monthly_databases.py and sorted by
+# BaseFEN) is preferred when present — DuckDB's row-group statistics make
+# FEN lookups much faster than scanning the per-month glob.
 def _get_parquet_source():
-    monthly_files = glob.glob(os.path.join("monthly_databases", "*.parquet"))
-    if monthly_files:
-        return "monthly_databases/*.parquet"
-    return "lichess_moves_final.parquet"
+    if os.path.exists(LEGACY_FILE):
+        return LEGACY_FILE
+    if glob.glob(os.path.join(MONTHLY_DIR, "*.parquet")):
+        return MONTHLY_GLOB
+    return None
 
 
 def get_base_fen(board):
@@ -32,7 +42,7 @@ def index():
 @app.route('/setup_board', methods=['POST'])
 def setup_board():
     """Takes a space-separated sequence of moves and returns the resulting FEN."""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     move_sequence = data.get('moves', '').strip()
     board = chess.Board()
 
@@ -49,17 +59,32 @@ def setup_board():
 @app.route('/get_opponent_move', methods=['POST'])
 def get_opponent_move():
     """Queries DuckDB for the top 5 most played moves in the current position and ELO range."""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     fen = data.get('fen')
-    elo_min = data.get('elo_min', 0)
-    elo_max = data.get('elo_max', 3000)
 
-    board = chess.Board(fen)
+    if not fen:
+        return jsonify({"error": "Missing 'fen' field in request."}), 400
+
+    try:
+        board = chess.Board(fen)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid FEN provided."}), 400
+
+    try:
+        elo_min = int(data.get('elo_min', 0))
+        elo_max = int(data.get('elo_max', 3000))
+    except (TypeError, ValueError):
+        return jsonify({"error": "elo_min and elo_max must be integers."}), 400
+
     base_fen = get_base_fen(board)
 
     parquet_source = _get_parquet_source()
+    if parquet_source is None:
+        return jsonify({"error": "No move database available on the server."}), 503
 
-    # Use a CTE to sum the plays across the Elo buckets, then calculate percentages
+    # Use a CTE to sum the plays across the Elo buckets, then calculate percentages.
+    # cursor() gives this request its own DuckDB cursor so concurrent Flask
+    # threads don't trample each other on the shared connection.
     query = f"""
             WITH MoveStats AS (SELECT MoveSAN,
                                       SUM(TimesPlayed) as plays
@@ -72,7 +97,7 @@ def get_opponent_move():
             ORDER BY plays DESC LIMIT 5
             """
 
-    results = db.execute(query, (base_fen, elo_min, elo_max)).fetchall()
+    results = db.cursor().execute(query, (base_fen, elo_min, elo_max)).fetchall()
 
     if results:
         # Build a list of dictionaries for the frontend
