@@ -186,12 +186,37 @@ The following constants are hardcoded and can be changed directly in the source 
 
 All runtimes are for one month of Lichess standard-rated data (~10–20 GB compressed).
 
+### Stage 1 framework comparison
+
 | Approach                                 | Hardware        | Benchmark (20,000 games)       | Notes                          |
 | ---------------------------------------- | --------------- | ------------------------------ | ------------------------------ |
 | Baseline (ProcessPoolExecutor + pandas)  | 16 logical cores, Windows | 39s / 20,000 games             | Reference |
 | Dask Bag                                 | 16 logical cores, Windows | 60s / 20,000 games             | 0.65x vs baseline |
 | C-optimized (Polars)                     | 16 logical cores, Windows | 42s / 20,000 games             | 0.94x vs baseline |
 | Ray cluster                              | 256 CPUs across 4 nodes   | 1.2s / 20,000 games           | 32.5x vs baseline |
+
+### Stage 1 parser comparison (SAN tokenizer)
+
+To address the actual bottleneck (`chess.pgn.read_game`),
+`lichess_etl_1_extraction_fast_parser_benchmark.py` benchmarks a lightweight parser
+that regex-tokenizes the PGN moves line and calls `chess.Board.parse_san()` directly —
+skipping the `Game` / `GameNode` tree, comment parsing, NAG handling, and variation
+walking. Both pipelines run with identical parallelism on the same pre-buffered games.
+
+| Approach                                       | Hardware                  | Benchmark (20,000 games)              | Speedup        |
+| ---------------------------------------------- | ------------------------- | ------------------------------------- | -------------- |
+| Baseline (`chess.pgn.read_game`)               | 14 logical cores, Windows | 44.12s / 20,000 games (751,770 pos.)  | Reference      |
+| Fast parser (regex tokenizer + `chess.Board`)  | 14 logical cores, Windows | 26.23s / 20,000 games (679,443 pos.)  | **1.68x**      |
+
+```bash
+python lichess_etl_1_extraction_fast_parser_benchmark.py [path/to/file.pgn[.zst]] [n_games]
+```
+
+> **Caveat:** the fast parser produces ~10% fewer positions than the baseline because
+> `chess.pgn.read_game` is more lenient with malformed/edge-case tokens that
+> `parse_san` rejects (the affected games are silently skipped, same fault-tolerance
+> contract as today). For production use, tighten the regex (e.g. strip variation
+> parens `(...)` and any remaining stray annotations) until position counts match.
 
 **Key optimizations in the pipeline:**
 
@@ -215,6 +240,8 @@ pm4-schach-analyse-bot/
 ├── lichess_etl_1_extraction_dask.py            Stage 1: Dask
 ├── lichess_etl_1_extraction_c_optimized.py     Stage 1: Polars/C
 ├── lichess_etl_1_extraction_ray.py             Stage 1: Ray cluster
+├── lichess_etl_1_extraction_fast_parser_benchmark.py
+│                                               Stage 1: SAN tokenizer benchmark
 ├── lichess_etl_2_grouping.py                   Stage 2: aggregation
 ├── lichess_etl_3_final_merging.py              Stage 3: merge
 │
