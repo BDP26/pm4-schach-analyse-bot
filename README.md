@@ -186,6 +186,8 @@ The following constants are hardcoded and can be changed directly in the source 
 
 All runtimes are for one month of Lichess standard-rated data (~10–20 GB compressed).
 
+### Stage 1 framework comparison
+
 | Approach                                 | Hardware        | Benchmark (20,000 games)       | Notes                          |
 | ---------------------------------------- | --------------- | ------------------------------ | ------------------------------ |
 | Baseline (ProcessPoolExecutor + pandas)  | 16 logical cores, Windows | 39s / 20,000 games             | Reference |
@@ -215,6 +217,8 @@ pm4-schach-analyse-bot/
 ├── lichess_etl_1_extraction_dask.py            Stage 1: Dask
 ├── lichess_etl_1_extraction_c_optimized.py     Stage 1: Polars/C
 ├── lichess_etl_1_extraction_ray.py             Stage 1: Ray cluster
+├── lichess_etl_1_extraction_fast_parser_benchmark.py
+│                                               Stage 1: SAN tokenizer benchmark
 ├── lichess_etl_2_grouping.py                   Stage 2: aggregation
 ├── lichess_etl_3_final_merging.py              Stage 3: merge
 │
