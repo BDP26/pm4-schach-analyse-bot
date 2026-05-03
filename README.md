@@ -191,7 +191,7 @@ All runtimes are for one month of Lichess standard-rated data (~10–20 GB compr
 | Baseline (ProcessPoolExecutor + pandas)  | 16 logical cores, Windows | 39s / 20,000 games             | Reference |
 | Dask Bag                                 | 16 logical cores, Windows | 60s / 20,000 games             | 0.65x vs baseline |
 | C-optimized (Polars)                     | 16 logical cores, Windows | 42s / 20,000 games             | 0.94x vs baseline |
-| Ray cluster                              | 256 CPUs across 4 nodes   | 0.6ms / 20,000 games           | 3'900'000x vs baseline |
+| Ray cluster                              | 256 CPUs across 4 nodes   | 1.2s / 20,000 games           | 32.5x vs baseline |
 
 **Key optimizations in the pipeline:**
 
