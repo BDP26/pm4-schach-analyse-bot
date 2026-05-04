@@ -197,7 +197,7 @@ All runtimes are for one month of Lichess standard-rated data (~10–20 GB compr
 
 ### Stage 1 parser comparison (SAN tokenizer)
 
-To address the actual bottleneck (`chess.pgn.read_game`),
+To address the `chess.pgn.read_game` bottleneck,
 `lichess_etl_1_extraction_fast_parser_benchmark.py` benchmarks a lightweight parser
 that regex-tokenizes the PGN moves line and calls `chess.Board.parse_san()` directly —
 skipping the `Game` / `GameNode` tree, comment parsing, NAG handling, and variation
